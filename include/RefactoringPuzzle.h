@@ -7,41 +7,50 @@
 #include <iostream>
 
 namespace RefactoringPuzzle {
+  using namespace std;
+
   template<typename A>
   class IntRdr {
   public:
-    ::std::function<A(int)> read;
+    function<A(int)> read;
     
-    IntRdr(::std::function<A(int)> read) : read(read) {}
+    IntRdr(function<A(int)> read) : read{read} {}
     
     template<typename B>
-    auto select(::std::function<B(A)> f)
-      -> IntRdr<B> *
+    auto select(function<B(A)> f) const
+      -> unique_ptr<const IntRdr<B>>
     {
-      return new IntRdr<B>([this, f](int n) { return f(read(n)); });
+      return unique_ptr<const IntRdr<B>>
+        (new IntRdr<B>([this, f](int n) { return f(read(n)); }));
     }
     
+    // TODO too restrictive?
     template<typename B>
-    auto selectMany(::std::function<IntRdr<B> *(A)> f)
-      -> IntRdr<B> *
+    auto selectMany(function<unique_ptr<const IntRdr<B>>(A)> f) const
+      -> unique_ptr<const IntRdr<B>>
     {
-      return new IntRdr<B>([this, f](int n) { return f(read(n))->read(n); });
+      return unique_ptr<const IntRdr<B>>
+        (new IntRdr<B>([this, f](int n) { return f(read(n))->read(n); }));
     }
     
     static auto apply(A a)
-      -> IntRdr *
+      -> unique_ptr<const IntRdr>
     {
-      return new IntRdr<A>([a](int) { return a; });
+      return unique_ptr<const IntRdr>
+        (new IntRdr<A>([a](int) { return a; }));
     }
 
-    auto print(::std::ostream &os) const
-      -> ::std::ostream &
+    auto print(ostream &os) const
+      -> ostream &
     {
       // Not so informative.
       return os << "IntRdr(" << typeid(read).name() << ")";
     }
   };
   
+  template<typename A> class Some;
+  template<typename A> class None;
+
   template<typename A>
   class Option {
   public:
@@ -54,10 +63,10 @@ namespace RefactoringPuzzle {
       so we do manual type switch instead in the base class.
     */
     template<typename X>
-    auto fold(::std::function<X(A)> some, X none)
+    auto fold(function<X(A)> some, X none) const
       -> X
     {
-      if (auto self = dynamic_cast<Some *>(this)) {
+      if (auto self = dynamic_cast<const Some<A> *>(this)) {
         return some(self->a);
       }
       else {
@@ -66,66 +75,78 @@ namespace RefactoringPuzzle {
     }
     
     static auto apply(A a)
-      -> Option *
+      -> unique_ptr<const Option>
     {
-      return new Some(a);
+      return unique_ptr<const Option>(new Some<A>(a));
     }
     
-    virtual auto print(::std::ostream &os) const
-      -> ::std::ostream & = 0;
+    virtual auto print(ostream &os) const
+      -> ostream & = 0;
 
-    class Some : public Option {
-    public:
-      A const a;
-      
-      Some(A a) : a(a) {}
-
-      virtual auto print(::std::ostream &os) const
-        -> ::std::ostream & override
-      {
-        return os << "Some(" << a << ")";
-      }
-
-    };
-    
-    class None : public Option {
-    public:
-      virtual auto print(::std::ostream &os) const
-        -> ::std::ostream & override
-      {
-        return os << "None";
-      }
-    };
-    
+    // TODO
     template<typename B>
-    auto select(::std::function<B(A)> f)
-      -> Option<B> *
+    auto select(function<B(A)> f) const
+      -> shared_ptr<const Option<B>>
     {
-      return fold<Option<B> *>([f](A a) {
-          return new typename Option<B>::Some(f(a));
+      return fold<unique_ptr<const Option<B>>>([f](A a) {
+          return unique_ptr<const Some<B>>(new Some<B>(f(a)));
         },
-        new typename Option<B>::None());
+        unique_ptr<const None<B>>(new None<B>()));
     }
     
     template<typename B>
-    auto selectMany(::std::function<Option<B> *(A)> f)
-      -> Option<B> *
+    auto selectMany(function<shared_ptr<const Option<B>>(A)> f) const
+      -> shared_ptr<const Option<B>>
     {
-      return fold<Option<B> *>(f,
-                               new typename Option<B>::None());
+      return fold<shared_ptr<const Option<B>>>
+        (f, unique_ptr<const None<B>>(new None<B>()));
     }
   };
   
   template<typename A>
+  class Some : public Option<A> {
+  public:
+    virtual ~Some() {}
+    
+    const A a;
+    
+    Some(A a) : a{a} {}
+    
+    virtual auto print(ostream &os) const
+      -> ostream & override
+    {
+      return os << "Some(" << a << ")";
+    }
+  };
+  
+  template<typename A>
+  class None : public Option<A> {
+  public:
+    virtual ~None() {}
+    
+    virtual auto print(ostream &os) const
+      -> ostream & override
+    {
+      return os << "None";
+    }
+  };
+  
+
+  template<typename A> class Cons;
+  template<typename A> class Nil;
+
+  template<typename A>
   class List {
   public:
+    using Ptr = shared_ptr<const List>;
+
     virtual ~List() {}
 
     template<typename X>
-    auto foldRight(::std::function<X(A, X)> f, X x)
+    auto foldRight(function<X(A, X)> f, X x) const
       -> X
     {
-      if (auto self = dynamic_cast<Cons *>(this)) {
+      if (auto self = dynamic_cast<const Cons<A> *>(this)) {
         return f(self->head, self->tail->foldRight(f, x));
       }
       else {
@@ -136,97 +157,105 @@ namespace RefactoringPuzzle {
     //// NOTE: duplication in runOptions and runIntRdrs
 
     // Return all the Some values, or None if not all are Some.
-    static auto runOptions(List<Option<A> *> *x)
-      -> Option<List *> *
+    static auto runOptions(shared_ptr<const List<shared_ptr<const Option<A>>>> x)
+      -> shared_ptr<const Option<shared_ptr<const List>>>
     {
-      return x->template foldRight<Option<List *> *>
-        ([](Option<A> *a,
-            Option<List *> *b) {
-          return a->template selectMany<List *>([b](A aa) {
-              return b->template select<List *>([aa](List *bb) {
+      return x->template foldRight<shared_ptr<const Option<shared_ptr<const List>>>>
+        ([](shared_ptr<const Option<A>> a,
+            shared_ptr<const Option<shared_ptr<const List>>> b) {
+          return a->template selectMany<shared_ptr<const List>>([b](A aa) {
+              return b->template select<shared_ptr<const List>>([aa](shared_ptr<const List> bb) {
                   return bb->prepend(aa);
                 });
             });
         },
-         Option<List *>::apply(new Nil()));
+         Option<shared_ptr<const List>>::apply(make_shared<Nil<A>>()));
     }
 
     // Apply an Int to a list of int readers and
     // return the list of return values.
-    static auto runIntRdrs(List<IntRdr<A> *> *x)
-      -> IntRdr<List *> *
+    static auto runIntRdrs(shared_ptr<const List<shared_ptr<const IntRdr<A>>>> x)
+      -> shared_ptr<const IntRdr<shared_ptr<const List>>>
     {
-      return x->template foldRight<IntRdr<List *> *>
-        ([](IntRdr<A> *a,
-            IntRdr<List *> *b) {
-          return a->template selectMany<List *>([b](A aa) {
-              return b->template select<List *>([aa](List *bb) {
+      return x->template foldRight<shared_ptr<const IntRdr<shared_ptr<const List>>>>
+        ([](shared_ptr<const IntRdr<A>> a,
+            shared_ptr<const IntRdr<shared_ptr<const List>>> b) {
+          return a->template selectMany<shared_ptr<const List>>([b](A aa) {
+              return b->template select<shared_ptr<const List>>([aa](shared_ptr<const List> bb) {
                   return bb->prepend(aa);
                 });
             });
         },
-         IntRdr<List *>::apply(new Nil()));
+         IntRdr<shared_ptr<const List>>::apply(make_shared<Nil<A>>()));
     }
     
-    auto prepend(A a)
-      -> List *
+    auto prepend(A a) const
+      -> shared_ptr<const List>
     {
-      return new Cons(a, this);
+      // Have to explicitly wrap this in shared_ptr
+      return make_shared<Cons<A>>(a, shared_ptr<const List>(this));
     }
     
-    virtual auto print(::std::ostream &os) const
-      -> ::std::ostream & = 0;
+    virtual auto print(ostream &os) const
+      -> ostream & = 0;
 
-    class Nil : public List {
-    public:
-      virtual auto print(::std::ostream &os) const
-        -> ::std::ostream & override
+  };
+
+  template<typename A>
+  class Nil : public List<A> {
+  public:
+    virtual ~Nil() {}
+    
+    virtual auto print(ostream &os) const
+      -> ostream & override
       {
         return os << "Nil";
       }
-    };
-    
-    class Cons : public List {
-    public:
-      A const head;
-      List *const tail;
-      
-      Cons(A head, List *tail) : head(head), tail(tail) {}
-
-      virtual auto print(::std::ostream &os) const
-        -> ::std::ostream & override
-      {
-        return os << "Cons(" << head << ", " << *tail << ")";
-      }
-    };
   };
-
+    
+  template<typename A>
+  class Cons : public List<A> {
+  public:
+    virtual ~Cons() {}
+    
+    const A head;
+    const shared_ptr<const List<A>> tail;
+    
+    Cons(A head, const shared_ptr<const List<A>> &tail) : head{head}, tail{tail} {}
+    
+    virtual auto print(ostream &os) const
+      -> ostream & override
+    {
+      return os << "Cons(" << head << ", " << *tail << ")";
+    }
+  };
+  
   //// The rest are operator<<
   template<typename A>
-  auto operator<<(::std::ostream &os, const IntRdr<A> &reader)
-    -> ::std::ostream &
+  auto operator<<(ostream &os, const IntRdr<A> &reader)
+    -> ostream &
   {
     return reader.print(os);
   }
 
   template<typename A>
-  auto operator<<(::std::ostream &os, const Option<A> &option)
-    -> ::std::ostream &
+  auto operator<<(ostream &os, const Option<A> &option)
+    -> ostream &
   {
     return option.print(os);
   }
 
   template<typename A>
-  auto operator<<(::std::ostream &os, const List<A> &list)
-    -> ::std::ostream &
+  auto operator<<(ostream &os, const List<A> &list)
+    -> ostream &
   {
     return list.print(os);
   }
 
   // Print what is pointed to.
   template<typename A>
-  auto operator<<(::std::ostream &os, const A *a)
-    -> ::std::ostream &
+  auto operator<<(ostream &os, const A *a)
+    -> ostream &
   {
     return os << *a;
   }

@@ -8,81 +8,92 @@ namespace TestRefactoringPuzzle {
   // our data structures, but just look at the string representations!
 
   using namespace RefactoringPuzzle;
+  using namespace std;
 
   template<typename A>
   auto toString(const A &a)
-    -> ::std::string
+    -> string
   {
-    ::std::stringstream s;
+    stringstream s;
     s << a;
     return s.str();
   }
 
-  using IntOption = Option<int>;
-  using IntSome = IntOption::Some;
-  using IntNone = IntOption::None;
-  
   auto add1 = [](int n) { return n+1; };
 
   TEST(Option, selectAdd1OnNome) {
-    auto result = (new IntNone())->select<int>(add1);
+    auto none = make_shared<None<int>>();
+    auto result = none->select<int>(add1);
     ASSERT_EQ("None", toString(result));
   }
   
   TEST(Option, selectAdd1OnSome) {
     // Some(4)
-    auto someFour = new IntSome(4);
+    auto someFour = make_shared<Some<int>>(4);
     
     auto result = someFour->select<int>(add1);
     ASSERT_EQ("Some(5)", toString(result));
   }
   
-  using IntList = List<int>;
-  using IntOptionList = List<IntOption *>;
-  
+  auto intSomeNil = make_shared<Nil<shared_ptr<const Option<int>>>>();
+
+  auto intSome(int n)
+    -> unique_ptr<Some<int>>
+  {
+    return unique_ptr<Some<int>>(new Some<int>(n));
+  }
+
+  auto intNone()
+    -> unique_ptr<None<int>>
+  {
+    return unique_ptr<None<int>>(new None<int>());
+  }
+
   TEST(List, runOptionsSucceedsOnAllSome) {
     // Cons(Some(1), Cons(Some(2), Cons(Some(3), Nil)))
-    auto three = (new IntOptionList::Nil())->
-      prepend(new IntSome(3))->
-      prepend(new IntSome(2))->
-      prepend(new IntSome(1));
+    auto three = intSomeNil->
+      prepend(intSome(3))->
+      prepend(intSome(2))->
+      prepend(intSome(1));
     
-    auto result = IntList::runOptions(three);
+    auto result = List<int>::runOptions(three);
     ASSERT_EQ("Some(Cons(1, Cons(2, Cons(3, Nil))))", toString(result));
   }
-  
+
   TEST(List, runOptionsFailsOnNone) {
     // Cons(Some(1), Cons(Some(2), Cons(None, Nil)))
-    auto three = (new IntOptionList::Nil())->
-      prepend(new IntOption::None())->
-      prepend(new IntSome(2))->
-      prepend(new IntSome(1));
+    auto three = intSomeNil->
+      prepend(intNone())->
+      prepend(intSome(2))->
+      prepend(intSome(1));
     
-    auto result = IntList::runOptions(three);
+    auto result = List<int>::runOptions(three);
     
     ASSERT_EQ("None", toString(result));
   }
 
-  using StringList = List<::std::string>;
-  using StringRdr = IntRdr<::std::string>;
-  using StringRdrList = List<StringRdr *>;
+  auto stringRdrNil = make_shared<Nil<shared_ptr<const IntRdr<string>>>>();
+
+  auto reader(function<string(int)> f)
+    -> unique_ptr<IntRdr<string>>
+  {
+    return unique_ptr<IntRdr<string>>(new IntRdr<string>(f));
+  }
 
   TEST(List, runIntRdrsSucceeds) {
     auto third = [](int n) { return "c"; };
     auto second = [](int n) { return "b"; };
     auto first = [](int n) { return "a"; };
 
-    auto three = (new StringRdrList::Nil())->
-      prepend(new StringRdr(third))->
-      prepend(new StringRdr(second))->
-      prepend(new StringRdr(first));
+    auto three = stringRdrNil->
+      prepend(reader(third))->
+      prepend(reader(second))->
+      prepend(reader(first));
     
-    auto result = StringList::runIntRdrs(three);
+    auto result = List<string>::runIntRdrs(three);
     auto list = result->read(7);
     ASSERT_EQ("Cons(a, Cons(b, Cons(c, Nil)))", toString(list));
   }
-  
-
 }
 
 auto main(int argc, char **argv)
