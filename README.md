@@ -24,7 +24,7 @@ $ test/TestRefactoringPuzzle
 
 ### Memory management
 
-I decided it was not worth the trouble to prevent memory leaks in this sample code by coming up with a memory policy, using `std::shared_ptr`, etc.
+In the absence of automatic garbage collection, I used `std::shared_ptr` to prevent memory leaks.
 
 ### Algebraic data types
 
